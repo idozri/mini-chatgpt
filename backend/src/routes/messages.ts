@@ -12,8 +12,6 @@ const sendMessageSchema = z.object({
   existingMessageId: z.string().optional(), // Reason: For retries - reuse existing message if provided
 });
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 // POST /api/conversations/:id/messages - Send message and get LLM reply
 router.post('/:id/messages', async (req: Request, res: Response) => {
   try {
@@ -88,8 +86,6 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
         );
       }
     }
-
-    // await sleep(15000);
 
     // Reason: AbortController allows cancellation from the client
     // Note: Express doesn't have req.signal by default, but we create one for future support
