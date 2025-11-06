@@ -30,7 +30,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/overbooked?schema=public
       # LLM Provider: Change to 'mock' or 'ollama' to switch providers
       # When using 'ollama', ensure the ollama service is running (remove deploy.replicas: 0)
-      LLM_PROVIDER: ollama
+      LLM_PROVIDER: mock
       MOCK_LLM_BASE_URL: http://mock-llm:8080
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: llama3

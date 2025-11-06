@@ -109,13 +109,11 @@ class MockLlmAdapter implements LlmAdapter {
 class OllamaLlmAdapter implements LlmAdapter {
   private baseUrl: string;
   private model: string;
-  private fallbackModel: string;
   private client: AxiosInstance;
 
   constructor() {
     const url = process.env.OLLAMA_BASE_URL;
     const model = process.env.OLLAMA_MODEL;
-    const fallbackModel = process.env.OLLAMA_FALLBACK_MODEL || 'gemma3:4b';
 
     if (!url) {
       throw new Error('OLLAMA_BASE_URL environment variable is required');
@@ -126,31 +124,7 @@ class OllamaLlmAdapter implements LlmAdapter {
 
     this.baseUrl = url;
     this.model = model;
-    this.fallbackModel = fallbackModel;
     this.client = createHttpClient();
-  }
-
-  // Reason: Check if error indicates model/memory issues that warrant fallback
-  private shouldUseFallback(error: AxiosError<{ error: string }>): boolean {
-    // 404 means model not found or unavailable
-    if (error.response?.status === 404) {
-      return true;
-    }
-
-    // Check error message for memory-related issues
-    const errorMessage = error.response?.data?.error?.toLowerCase() || '';
-    const memoryKeywords = [
-      'memory',
-      'insufficient',
-      'unable to load',
-      'requires more',
-      'not enough',
-    ];
-    if (memoryKeywords.some((keyword) => errorMessage.includes(keyword))) {
-      return true;
-    }
-
-    return false;
   }
 
   private async tryModel(
@@ -186,47 +160,9 @@ class OllamaLlmAdapter implements LlmAdapter {
       )
       .join('\n\n');
 
-    // Try primary model first
     try {
       return await this.tryModel(this.model, prompt, request.abortSignal);
     } catch (error) {
-      // Check if we should try fallback
-      if (
-        error instanceof AxiosError &&
-        this.shouldUseFallback(error as AxiosError<{ error: string }>)
-      ) {
-        logger.warn(
-          {
-            primaryModel: this.model,
-            fallbackModel: this.fallbackModel,
-            error: (error as AxiosError<{ error: string }>).response?.data
-              ?.error,
-          },
-          'Primary model failed, trying fallback model'
-        );
-
-        // Try fallback model
-        try {
-          return await this.tryModel(
-            this.fallbackModel,
-            prompt,
-            request.abortSignal
-          );
-        } catch (fallbackError) {
-          logger.error(
-            {
-              primaryModel: this.model,
-              fallbackModel: this.fallbackModel,
-              error: (fallbackError as AxiosError<{ error: string }>).response
-                ?.data?.error,
-            },
-            'Both primary and fallback models failed'
-          );
-          throw fallbackError;
-        }
-      }
-
-      // If error doesn't warrant fallback, handle normally
       logger.error(
         {
           model: this.model,
