@@ -1,0 +1,262 @@
+import axios, { AxiosInstance, AxiosError } from 'axios';
+import axiosRetry from 'axios-retry';
+import { logger } from './logger';
+
+export interface LlmMessage {
+  role: string;
+  content: string;
+}
+
+export interface LlmCompletionRequest {
+  messages: LlmMessage[];
+  abortSignal?: AbortSignal;
+}
+
+export interface LlmCompletionResponse {
+  completion: string;
+}
+
+export interface LlmAdapter {
+  complete(request: LlmCompletionRequest): Promise<LlmCompletionResponse>;
+}
+
+// Reason: Create axios client with 12s timeout and retry configuration
+// Retries up to 2 times with exponential backoff (500ms, 1000ms)
+function createHttpClient(): AxiosInstance {
+  const client = axios.create({
+    timeout: 12000, // 12s timeout
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  axiosRetry(client, {
+    retries: 2,
+    retryDelay: (retryCount: number) => {
+      // Reason: Exponential backoff: 500ms for first retry, 1000ms for second
+      const delayMs = 500 * Math.pow(2, retryCount - 1);
+      return delayMs;
+    },
+    retryCondition: (error: AxiosError) => {
+      // Reason: Retry on network errors (no response) or 5xx server errors
+      return !error.response || error.response.status >= 500;
+    },
+    onRetry: (retryCount: number, error: AxiosError) => {
+      const url = error.config?.url || 'unknown';
+      const delayMs = 500 * Math.pow(2, retryCount - 1);
+      logger.warn(
+        {
+          attempt: retryCount,
+          maxRetries: 2,
+          delayMs,
+          url,
+          status: error.response?.status,
+        },
+        'LLM request failed, retrying...'
+      );
+    },
+  });
+
+  return client;
+}
+
+class MockLlmAdapter implements LlmAdapter {
+  private baseUrl: string;
+  private client: AxiosInstance;
+
+  constructor() {
+    const url = process.env.MOCK_LLM_BASE_URL;
+    if (!url) {
+      throw new Error('MOCK_LLM_BASE_URL environment variable is required');
+    }
+    this.baseUrl = url;
+    this.client = createHttpClient();
+  }
+
+  async complete(
+    request: LlmCompletionRequest
+  ): Promise<LlmCompletionResponse> {
+    const url = `${this.baseUrl}/complete`;
+    const messages = request.messages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    logger.debug({ url, messageCount: messages.length }, 'Calling mock LLM');
+
+    try {
+      const response = await this.client.post(
+        url,
+        { messages },
+        {
+          signal: request.abortSignal,
+        }
+      );
+
+      return { completion: response.data.completion || '' };
+    } catch (error) {
+      if (
+        axios.isCancel(error) ||
+        (error instanceof Error && error.message.includes('aborted'))
+      ) {
+        throw new Error('Request aborted');
+      }
+      throw error;
+    }
+  }
+}
+
+class OllamaLlmAdapter implements LlmAdapter {
+  private baseUrl: string;
+  private model: string;
+  private fallbackModel: string;
+  private client: AxiosInstance;
+
+  constructor() {
+    const url = process.env.OLLAMA_BASE_URL;
+    const model = process.env.OLLAMA_MODEL;
+    const fallbackModel = process.env.OLLAMA_FALLBACK_MODEL || 'gemma3:4b';
+
+    if (!url) {
+      throw new Error('OLLAMA_BASE_URL environment variable is required');
+    }
+    if (!model) {
+      throw new Error('OLLAMA_MODEL environment variable is required');
+    }
+
+    this.baseUrl = url;
+    this.model = model;
+    this.fallbackModel = fallbackModel;
+    this.client = createHttpClient();
+  }
+
+  // Reason: Check if error indicates model/memory issues that warrant fallback
+  private shouldUseFallback(error: AxiosError<{ error: string }>): boolean {
+    // 404 means model not found or unavailable
+    if (error.response?.status === 404) {
+      return true;
+    }
+
+    // Check error message for memory-related issues
+    const errorMessage = error.response?.data?.error?.toLowerCase() || '';
+    const memoryKeywords = [
+      'memory',
+      'insufficient',
+      'unable to load',
+      'requires more',
+      'not enough',
+    ];
+    if (memoryKeywords.some((keyword) => errorMessage.includes(keyword))) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private async tryModel(
+    model: string,
+    prompt: string,
+    abortSignal?: AbortSignal
+  ): Promise<LlmCompletionResponse> {
+    const url = `${this.baseUrl}/api/generate`;
+
+    logger.debug({ url, model, promptLength: prompt.length }, 'Calling Ollama');
+
+    const response = await this.client.post(
+      url,
+      {
+        model,
+        prompt,
+        stream: false,
+      },
+      {
+        signal: abortSignal,
+      }
+    );
+
+    return { completion: response.data.response || '' };
+  }
+
+  async complete(
+    request: LlmCompletionRequest
+  ): Promise<LlmCompletionResponse> {
+    const prompt = request.messages
+      .map(
+        (msg) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
+      )
+      .join('\n\n');
+
+    // Try primary model first
+    try {
+      return await this.tryModel(this.model, prompt, request.abortSignal);
+    } catch (error) {
+      // Check if we should try fallback
+      if (
+        error instanceof AxiosError &&
+        this.shouldUseFallback(error as AxiosError<{ error: string }>)
+      ) {
+        logger.warn(
+          {
+            primaryModel: this.model,
+            fallbackModel: this.fallbackModel,
+            error: (error as AxiosError<{ error: string }>).response?.data
+              ?.error,
+          },
+          'Primary model failed, trying fallback model'
+        );
+
+        // Try fallback model
+        try {
+          return await this.tryModel(
+            this.fallbackModel,
+            prompt,
+            request.abortSignal
+          );
+        } catch (fallbackError) {
+          logger.error(
+            {
+              primaryModel: this.model,
+              fallbackModel: this.fallbackModel,
+              error: (fallbackError as AxiosError<{ error: string }>).response
+                ?.data?.error,
+            },
+            'Both primary and fallback models failed'
+          );
+          throw fallbackError;
+        }
+      }
+
+      // If error doesn't warrant fallback, handle normally
+      logger.error(
+        {
+          model: this.model,
+          error: (error as AxiosError<{ error: string }>).response?.data?.error,
+        },
+        'Ollama completion failed'
+      );
+
+      if (
+        axios.isCancel(error) ||
+        (error instanceof Error && error.message.includes('aborted'))
+      ) {
+        throw new Error('Request aborted');
+      }
+      throw error;
+    }
+  }
+}
+
+export function createLlmAdapter(): LlmAdapter {
+  const provider = process.env.LLM_PROVIDER || 'mock';
+
+  switch (provider) {
+    case 'mock':
+      return new MockLlmAdapter();
+    case 'ollama':
+      return new OllamaLlmAdapter();
+    default:
+      throw new Error(
+        `Unknown LLM provider: ${provider}. Must be 'mock' or 'ollama'`
+      );
+  }
+}

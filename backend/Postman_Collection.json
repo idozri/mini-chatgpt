@@ -1,0 +1,387 @@
+{
+  "info": {
+    "name": "Mini ChatGPT API",
+    "description": "API collection for Mini ChatGPT backend server",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "mini-chatgpt-api-2025",
+    "version": "1.0.0"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/healthz",
+              "host": ["{{base_url}}"],
+              "path": ["healthz"]
+            },
+            "description": "Check if the server is running"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has status ok\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(\"ok\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Conversations",
+      "item": [
+        {
+          "name": "Create Conversation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"My New Conversation\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/conversations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations"]
+            },
+            "description": "Create a new conversation with a title"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has conversation ID\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.id).to.exist;",
+                  "    pm.expect(jsonData.title).to.exist;",
+                  "    pm.expect(jsonData.createdAt).to.exist;",
+                  "    ",
+                  "    // Save conversation ID for next requests",
+                  "    pm.environment.set(\"conversationId\", jsonData.id);",
+                  "    pm.collectionVariables.set(\"conversationId\", jsonData.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List All Conversations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conversations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations"]
+            },
+            "description": "Get all conversations, ordered by creation date (newest first)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is an array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Conversation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conversations/{{conversationId}}?cursor={{messagesCursor}}&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations", "{{conversationId}}"],
+              "query": [
+                {
+                  "key": "cursor",
+                  "value": "{{messagesCursor}}",
+                  "description": "Base64url-encoded cursor for pagination (leave empty for first page)",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Number of messages per page (default: 20, max: 100)",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Get a single conversation with paginated messages. Leave cursor empty for the first page (newest messages)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has conversation data\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.id).to.exist;",
+                  "    pm.expect(jsonData.messages).to.exist;",
+                  "    pm.expect(jsonData.messages.items).to.be.an('array');",
+                  "    ",
+                  "    // Save cursors for pagination",
+                  "    if (jsonData.messages.nextCursor) {",
+                  "        pm.environment.set(\"messagesNextCursor\", jsonData.messages.nextCursor);",
+                  "        pm.collectionVariables.set(\"messagesNextCursor\", jsonData.messages.nextCursor);",
+                  "    } else {",
+                  "        pm.environment.set(\"messagesNextCursor\", \"\");",
+                  "        pm.collectionVariables.set(\"messagesNextCursor\", \"\");",
+                  "    }",
+                  "    ",
+                  "    if (jsonData.messages.prevCursor) {",
+                  "        pm.environment.set(\"messagesPrevCursor\", jsonData.messages.prevCursor);",
+                  "        pm.collectionVariables.set(\"messagesPrevCursor\", jsonData.messages.prevCursor);",
+                  "    } else {",
+                  "        pm.environment.set(\"messagesPrevCursor\", \"\");",
+                  "        pm.collectionVariables.set(\"messagesPrevCursor\", \"\");",
+                  "    }",
+                  "    ",
+                  "    console.log(\"Messages count:\", jsonData.messages.items.length);",
+                  "    console.log(\"Has more:\", jsonData.messages.hasMore);",
+                  "    console.log(\"Next cursor (for older messages):\", jsonData.messages.nextCursor || \"null\");",
+                  "    console.log(\"Prev cursor (for newer messages):\", jsonData.messages.prevCursor || \"null\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Next Cursor Messages (Older Messages)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conversations/{{conversationId}}?cursor={{messagesNextCursor}}&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations", "{{conversationId}}"],
+              "query": [
+                {
+                  "key": "cursor",
+                  "value": "{{messagesNextCursor}}",
+                  "description": "Base64url-encoded cursor for pagination (uses saved nextCursor)",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Number of messages per page (default: 20, max: 100)",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "Get the next page of messages using the nextCursor from a previous response. This loads older messages (going backwards in time)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has conversation data\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.id).to.exist;",
+                  "    pm.expect(jsonData.messages).to.exist;",
+                  "    pm.expect(jsonData.messages.items).to.be.an('array');",
+                  "    ",
+                  "    // Update cursors for next pagination",
+                  "    if (jsonData.messages.nextCursor) {",
+                  "        pm.environment.set(\"messagesNextCursor\", jsonData.messages.nextCursor);",
+                  "        pm.collectionVariables.set(\"messagesNextCursor\", jsonData.messages.nextCursor);",
+                  "    } else {",
+                  "        pm.environment.set(\"messagesNextCursor\", \"\");",
+                  "        pm.collectionVariables.set(\"messagesNextCursor\", \"\");",
+                  "    }",
+                  "    ",
+                  "    if (jsonData.messages.prevCursor) {",
+                  "        pm.environment.set(\"messagesPrevCursor\", jsonData.messages.prevCursor);",
+                  "        pm.collectionVariables.set(\"messagesPrevCursor\", jsonData.messages.prevCursor);",
+                  "    } else {",
+                  "        pm.environment.set(\"messagesPrevCursor\", \"\");",
+                  "        pm.collectionVariables.set(\"messagesPrevCursor\", \"\");",
+                  "    }",
+                  "    ",
+                  "    console.log(\"Messages count:\", jsonData.messages.items.length);",
+                  "    console.log(\"Has more:\", jsonData.messages.hasMore);",
+                  "    console.log(\"Next cursor (for older messages):\", jsonData.messages.nextCursor || \"null\");",
+                  "    console.log(\"Prev cursor (for newer messages):\", jsonData.messages.prevCursor || \"null\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Conversation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conversations/{{conversationId}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations", "{{conversationId}}"]
+            },
+            "description": "Delete a conversation and all its messages (cascade delete)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Endpoints for managing conversations"
+    },
+    {
+      "name": "Messages",
+      "item": [
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"What is the weather like?\",\n  \"role\": \"user\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/conversations/{{conversationId}}/messages",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations", "{{conversationId}}", "messages"]
+            },
+            "description": "Send a message to a conversation and receive an LLM-generated response"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has user and assistant messages\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.userMessage).to.exist;",
+                  "    pm.expect(jsonData.assistantMessage).to.exist;",
+                  "    pm.expect(jsonData.userMessage.role).to.eql(\"user\");",
+                  "    pm.expect(jsonData.assistantMessage.role).to.eql(\"assistant\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Endpoints for sending messages and getting LLM responses"
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "conversationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "messagesCursor",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "messagesNextCursor",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "messagesPrevCursor",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: overbooked
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  mock-llm:
+    build:
+      context: ./mock-llm
+    ports:
+      - "8080:8080"
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/overbooked?schema=public
+      # LLM Provider: Change to 'mock' or 'ollama' to switch providers
+      # When using 'ollama', ensure the ollama service is running (remove deploy.replicas: 0)
+      LLM_PROVIDER: ollama
+      MOCK_LLM_BASE_URL: http://mock-llm:8080
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3
+    depends_on:
+      db:
+        condition: service_healthy
+      mock-llm:
+        condition: service_started
+    ports:
+      - "3001:3001"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:3001/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      replicas: 0
+
+volumes:
+  db_data:
+  ollama_data:

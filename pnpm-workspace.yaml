@@ -1,0 +1,14 @@
+packages:
+  - frontend
+  - backend
+  - mock-llm
+  - packages/*
+
+ignoredBuiltDependencies:
+  - '@prisma/engines'
+  - '@swc/core'
+  - esbuild
+
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - prisma
