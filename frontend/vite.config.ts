@@ -30,5 +30,8 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
       },
     },
+    preview: {
+      allowedHosts: ["mini-chatgpt-frontend.onrender.com"],
+    },
   };
 });
