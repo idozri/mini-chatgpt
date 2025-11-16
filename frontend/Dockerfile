@@ -9,7 +9,7 @@ RUN npm ci && npm cache clean --force
 COPY . .
 
 # Build with configurable API base URL
-ARG VITE_API_BASE_URL=http://localhost:3001/api
+ARG VITE_API_BASE_URL=https://mini-chatgpt-backend-9tw7.onrender.com//api
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 RUN npm run build
 
